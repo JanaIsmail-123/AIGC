@@ -1,0 +1,165 @@
+#you can  use this code in collab as a cells
+#  |
+#  |
+# <>
+#cell 1
+!pip install streamlit pyngrok pillow diffusers transformers accelerate --quiet
+
+#cell 2
+!wget https://sourceforge.net/projects/dclib/files/dlib/v18.10/shape_predictor_68_face_landmarks.dat.bz2/download -O shape_predictor_68_face_landmarks.dat.bz2
+!bzip2 -d shape_predictor_68_face_landmarks.dat.bz2
+
+#cell 3
+%%writefile app.py
+import streamlit as st
+from PIL import Image
+from io import BytesIO
+import torch
+import numpy as np
+from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
+
+st.set_page_config(page_title="AI Face Generation & Transformation", layout="centered", page_icon="🧬")
+
+# --- Custom Purple UI Styling (Updated Image Frame / No Light Background) ---
+st.markdown("""
+    <style>
+      html, body, [class*="css"] {
+        background-color: #2A017B !important;
+        color: #f1eaff !important;
+        font-family: 'Inter', sans-serif;
+      }
+      h1, h2, h3, h4, h5 {
+        color: #ffffff !important;
+      }
+      .stButton>button {
+        background: linear-gradient(135deg,#7b2ff7,#8b5cf6);
+        color: white;
+        font-weight: 600;
+        border-radius: 1rem;
+        padding: 0.8rem;
+        box-shadow: 0 6px 20px rgba(123,47,247,0.6);
+      }
+      .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(123,47,247,0.8);
+      }
+      .stTextInput>div>div>input {
+        border: 2px solid #7b2ff7;
+        border-radius: 0.5rem;
+        padding: 0.5rem;
+        color: #ffffff;
+        background-color: #3d1e6d;
+      }
+      .stSlider {
+        color: #ffffff !important;
+      }
+      .stFileUploader>div>div {
+        border: 2px dashed #7b2ff7;
+        border-radius: 0.75rem;
+        padding: 1.5rem;
+        text-align: center;
+        background-color: #f0eaff;
+        color: #3d1e6d;
+      }
+      .stImage {
+        background-color: transparent !important;
+        border-radius: 1rem;
+        padding: 0rem;
+        box-shadow: none !important;
+      }
+      img {
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+        border-radius: 0.75rem;
+        background-color: transparent !important;
+        box-shadow: none !important;
+      }
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("🧬 AI Face Generation & Transformation")
+
+# --- LOAD TEXT-TO-IMAGE MODEL ---
+@st.cache_resource(show_spinner=True)
+def load_text2img_model():
+    return StableDiffusionPipeline.from_pretrained(
+        "runwayml/stable-diffusion-v1-5",
+        torch_dtype=torch.float16,
+        safety_checker=None
+    ).to("cuda")
+
+pipe_text2img = load_text2img_model()
+
+# --- LOAD IMAGE-TO-IMAGE MODEL (REAL AGING) ---
+@st.cache_resource(show_spinner=True)
+def load_img2img_model():
+    return StableDiffusionImg2ImgPipeline.from_pretrained(
+        "runwayml/stable-diffusion-v1-5",
+        torch_dtype=torch.float16,
+        safety_checker=None
+    ).to("cuda")
+
+pipe_img2img = load_img2img_model()
+
+# --- IMAGE-TO-IMAGE UI ---
+st.subheader("⏳ Transform Age of a Face (Image-to-Image)")
+st.markdown("<small>Upload a face image and choose a target age. A real AI model simulates aging or rejuvenation.</small>", unsafe_allow_html=True)
+
+uploaded_file = st.file_uploader("📤 Upload a face image (JPG/PNG)", type=["jpg", "jpeg", "png"], key="img2img_upload")
+if uploaded_file:
+    input_image = Image.open(BytesIO(uploaded_file.read())).convert("RGB").resize((512, 512))
+    st.image(input_image, caption="📸 Uploaded Image", use_column_width=True)
+
+    target_age = st.slider("🎚️ Select Target Age", 10, 80, 40)
+    if st.button("🚀 Transform Age", key="img2img_button"):
+        with st.spinner("🌀 Applying transformation..."):
+            prompt = f"portrait of a {target_age}-year-old person, realistic, high quality, centered face"
+            try:
+                result = pipe_img2img(
+                    prompt=prompt,
+                    image=input_image,
+                    strength=0.7,
+                    guidance_scale=8.5
+                )
+                output_image = result.images[0]
+                st.image(output_image, caption=f"Transformed to age {target_age}", use_column_width=True)
+                st.success("✅ Transformation complete!")
+            except Exception as e:
+                st.error(f"❌ Error during transformation: {e}")
+
+st.markdown("---")
+
+# --- TEXT-TO-IMAGE UI ---
+st.subheader("🎨 Generate a Face from Text")
+prompt = st.text_input("📝 Describe the face (e.g., 'a 30-year-old woman with red curly hair')")
+if st.button("🧠 Generate Image") and prompt.strip():
+    enhanced_prompt = f"portrait of {prompt}, ultra-realistic, photorealistic, highly detailed, sharp skin texture, symmetrical face, cinematic lighting, studio background"
+    with st.spinner("✨ Generating... please wait"):
+        try:
+            image = pipe_text2img(
+                prompt=enhanced_prompt,
+                num_inference_steps=40,
+                guidance_scale=8.5
+            ).images[0]
+            st.image(image, caption=f"🎯 Generated from: '{prompt}'", use_column_width=True)
+            st.success("✅ Image generation complete!")
+        except Exception as e:
+            st.error(f"❌ Generation failed: {e}")
+#cell 4
+
+!nohup streamlit run app.py --server.port 8501 &> streamlit.log &
+import time
+time.sleep(5)
+
+#cell 5
+
+from pyngrok import ngrok
+import time
+
+ngrok.set_auth_token("your ngrok token here....")  # replace with your actual token or omit if none
+
+time.sleep(3)  # wait for Streamlit to fully start
+
+public_url = ngrok.connect(8501)
+print(f"✅ Your app is live at: {public_url}")
